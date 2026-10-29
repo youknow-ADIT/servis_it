@@ -94,6 +94,13 @@ $stat_pendapatan = $conn->query("SELECT SUM(biaya) as total FROM `laporan_servis
                             <i class="bi bi-clipboard2-data-fill me-1 text-primary"></i> Data Laporan Servis
                         </a>
                     </li>
+                    <?php if (($_SESSION['role'] ?? '') === 'admin'): ?>
+                    <li class="nav-item">
+                        <a class="nav-link" href="users.php">
+                            <i class="bi bi-people-fill me-1 text-info"></i> Kelola Akun Petugas
+                        </a>
+                    </li>
+                    <?php endif; ?>
                     <li class="nav-item">
                         <a class="nav-link" href="index.php" target="_blank">
                             <i class="bi bi-globe me-1"></i> Lihat Website Utama
@@ -132,6 +139,11 @@ $stat_pendapatan = $conn->query("SELECT SUM(biaya) as total FROM `laporan_servis
             <?php elseif ($_GET['status_msg'] === 'deleted'): ?>
                 <div class="alert alert-warning alert-dismissible fade show rounded-3 shadow-sm" role="alert">
                     <i class="bi bi-trash-fill me-2"></i> Data servis telah dihapus dari sistem!
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            <?php elseif ($_GET['status_msg'] === 'unauthorized'): ?>
+                <div class="alert alert-danger alert-dismissible fade show rounded-3 shadow-sm" role="alert">
+                    <i class="bi bi-shield-x me-2"></i> Akses ditolak! Menu kelola akun hanya dapat diakses oleh Administrator IT.
                     <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
                 </div>
             <?php endif; ?>
