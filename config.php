@@ -8,7 +8,7 @@
 error_reporting(E_ALL);
 ini_set('display_errors', 0); // Matikan display warning mentah agar UI tetap bersih
 
-// 0. Baca file konfigurasi .env jika tersedia
+// 0. Ambil konfigurasi (Prioritaskan Environment Variables Vercel/Cloud, lalu .env lokal, lalu default XAMPP)
 $env_file = __DIR__ . '/.env';
 $env_data = [];
 if (file_exists($env_file)) {
@@ -25,21 +25,45 @@ if (file_exists($env_file)) {
     }
 }
 
-// Parameter koneksi database (prioritaskan .env jika valid, fallback ke XAMPP default)
-$db_host = !empty($env_data['DB_HOST']) ? $env_data['DB_HOST'] : '127.0.0.1';
-$db_port = !empty($env_data['DB_PORT']) ? intval($env_data['DB_PORT']) : 3306;
-$db_user = isset($env_data['DB_USER']) ? $env_data['DB_USER'] : 'root';
-$db_pass = isset($env_data['DB_PASS']) ? $env_data['DB_PASS'] : '';
-$db_name = !empty($env_data['DB_NAME']) ? $env_data['DB_NAME'] : 'servis_it_db';
+function getEnvVal($key, $default = '', $env_data = []) {
+    $val = getenv($key);
+    if ($val !== false && $val !== '') return $val;
+    if (isset($_ENV[$key]) && $_ENV[$key] !== '') return $_ENV[$key];
+    if (isset($env_data[$key]) && $env_data[$key] !== '') return $env_data[$key];
+    return $default;
+}
+
+$db_host = getEnvVal('DB_HOST', '127.0.0.1', $env_data);
+$db_port = intval(getEnvVal('DB_PORT', '3306', $env_data));
+$db_user = getEnvVal('DB_USER', 'root', $env_data);
+$db_pass = getEnvVal('DB_PASS', '', $env_data);
+$db_name = getEnvVal('DB_NAME', 'servis_it_db', $env_data);
+$db_ssl  = getEnvVal('DB_SSL', '', $env_data);
+
+// Deteksi apakah koneksi memerlukan enkripsi TLS/SSL (TiDB Cloud atau flag DB_SSL=true)
+$use_ssl = ($db_ssl === 'true') || ($db_port === 4000) || (strpos($db_host, 'tidbcloud.com') !== false);
+
+function getDbConnection($host, $user, $pass, $db, $port, $use_ssl) {
+    if ($use_ssl) {
+        $c = mysqli_init();
+        if ($c) {
+            $c->options(MYSQLI_OPT_SSL_VERIFY_SERVER_CERT, false);
+            $c->ssl_set(NULL, NULL, NULL, NULL, NULL);
+            @$c->real_connect($host, $user, $pass, $db, $port, NULL, MYSQLI_CLIENT_SSL);
+            return $c;
+        }
+    }
+    return @new mysqli($host, $user, $pass, $db, $port);
+}
 
 try {
     // 1. Coba hubungkan ke database
     mysqli_report(MYSQLI_REPORT_OFF); // Nonaktifkan exception crash agar error terhandle dengan ramah
-    $conn = @new mysqli($db_host, $db_user, $db_pass, $db_name, $db_port);
+    $conn = getDbConnection($db_host, $db_user, $db_pass, $db_name, $db_port, $use_ssl);
 
     // 2. Jika database belum ada (error 1049), buat database otomatis
     if ($conn->connect_errno == 1049) {
-        $init_conn = @new mysqli($db_host, $db_user, $db_pass, '', $db_port);
+        $init_conn = getDbConnection($db_host, $db_user, $db_pass, '', $db_port, $use_ssl);
         if ($init_conn->connect_error) {
             tampilkanErrorKoneksi($init_conn->connect_error);
         }
@@ -49,7 +73,7 @@ try {
         $init_conn->close();
 
         // Hubungkan kembali
-        $conn = new mysqli($db_host, $db_user, $db_pass, $db_name, $db_port);
+        $conn = getDbConnection($db_host, $db_user, $db_pass, $db_name, $db_port, $use_ssl);
     } elseif ($conn->connect_error) {
         tampilkanErrorKoneksi($conn->connect_error);
     }
@@ -67,17 +91,26 @@ try {
  * Tampilan pesan error yang informatif dan ramah jika MySQL belum aktif
  */
 function tampilkanErrorKoneksi($pesan_error) {
+    $is_vercel = !empty(getenv('VERCEL')) || !empty($_ENV['VERCEL']);
+    
+    $solusi = $is_vercel 
+        ? "<li>Buka dashboard proyek Anda di <strong>Vercel &rarr; Settings &rarr; Environment Variables</strong>.</li>
+           <li>Pastikan Anda telah mengisi variabel database cloud (<strong>DB_HOST, DB_USER, DB_PASS, DB_NAME, DB_PORT</strong>).</li>
+           <li>Ingat bahwa Vercel tidak dapat mengakses <code>127.0.0.1</code> laptop Anda, gunakan Cloud MySQL seperti <strong>TiDB Cloud</strong> atau <strong>Aiven</strong>.</li>
+           <li>Redeploy proyek setelah menambahkan Environment Variables.</li>"
+        : "<li>Buka aplikasi <strong>XAMPP Control Panel</strong>.</li>
+           <li>Pastikan modul <strong>MySQL</strong> sudah diklik <strong>Start</strong> (berwarna hijau).</li>
+           <li>Jika MySQL sempat crash, pastikan tidak ada port conflict dengan aplikasi lain di port 3306.</li>
+           <li>Refresh / muat ulang halaman ini (F5).</li>";
+
     die("
-    <div style='font-family: Arial, sans-serif; max-width: 600px; margin: 60px auto; padding: 25px; border-radius: 12px; background: #fff1f2; border: 1px solid #fecdd3; color: #9f1239;'>
-        <h3 style='margin-top:0;'>⚠️ MySQL XAMPP Belum Aktif atau Belum Siap</h3>
+    <div style='font-family: Arial, sans-serif; max-width: 650px; margin: 60px auto; padding: 25px; border-radius: 12px; background: #fff1f2; border: 1px solid #fecdd3; color: #9f1239; box-shadow: 0 4px 15px rgba(0,0,0,0.05);'>
+        <h3 style='margin-top:0;'>⚠️ Koneksi Database Belum Terhubung</h3>
         <p><strong>Pesan Sistem:</strong> " . htmlspecialchars($pesan_error) . "</p>
         <hr style='border:0; border-top:1px solid #fecdd3; margin: 15px 0;'>
-        <p><strong>Solusi Cepat:</strong></p>
+        <p><strong>Panduan Solusi:</strong></p>
         <ol style='padding-left: 20px; line-height: 1.6;'>
-            <li>Buka aplikasi <strong>XAMPP Control Panel</strong>.</li>
-            <li>Pastikan modul <strong>MySQL</strong> sudah diklik <strong>Start</strong> (berwarna hijau).</li>
-            <li>Jika MySQL sempat crash, pastikan tidak ada port conflict dengan aplikasi lain di port 3306.</li>
-            <li>Refresh / muat ulang halaman ini (F5).</li>
+            $solusi
         </ol>
     </div>
     ");

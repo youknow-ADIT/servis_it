@@ -3,6 +3,10 @@
  * Auth Middleware & Session Helpers
  */
 if (session_status() === PHP_SESSION_NONE) {
+    // Pada Vercel serverless functions, arahkan session storage ke folder /tmp yang writable
+    if (!empty(getenv('VERCEL')) || !empty($_ENV['VERCEL'])) {
+        @ini_set('session.save_path', '/tmp');
+    }
     session_start();
 }
 
